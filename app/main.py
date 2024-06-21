@@ -39,7 +39,7 @@ def make_response(
         ),
     )
 async def handle_connection(reader: StreamReader, writer: StreamWriter) -> None:
-    _, path, headers, _ = parse_request(await reader.read(2**16))
+    
     method, path, headers, body = parse_request(await reader.read(2**16))
     if re.fullmatch(r"/", path):
         writer.write(b"HTTP/1.1 200 OK\r\n\r\n")
@@ -54,7 +54,7 @@ async def handle_connection(reader: StreamReader, writer: StreamWriter) -> None:
         stderr(f"[OUT] echo {msg}")
     elif match := re.fullmatch(r"/files/(.+)", path):
         p = Path(GLOBALS["DIR"]) / match.group(1)
-        if p.is_file():
+        
         if method.upper() == "GET" and p.is_file():
             writer.write(
                 make_response(
