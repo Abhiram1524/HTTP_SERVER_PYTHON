@@ -25,8 +25,10 @@ def main():
         method, path, _ = request_line.split(' ')
         print(f"Method: {method}, Path: {path}")
 
-        # Check if the path starts with /echo/
-        if path.startswith('/echo/'):
+        # Determine the response based on the URL path
+        if path == '/':
+            http_response = "HTTP/1.1 200 OK\r\n\r\n"
+        elif path.startswith('/echo/'):
             # Extract the string after /echo/
             echo_string = path[len('/echo/'):]
             content_length = len(echo_string)
