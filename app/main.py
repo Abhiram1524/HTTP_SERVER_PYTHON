@@ -1,72 +1,69 @@
 import socket
-import os
-import sys
 import threading
+import sys
+import os
 
-# Define a global variable for the files directory
-files_directory = None
-
-def handle_client(client_socket):
+def handle_req(client, addr):
     try:
-        request = client_socket.recv(1024).decode()
-        print(f"Received request: {request}")
-
-        # Parse the request line
-        request_line = request.split('\r\n')[0]
-        print(f"Request line: {request_line}")
-
-        # Extract the method and URL path
-        method, path, _ = request_line.split(' ')
+        req = client.recv(1024).decode().split("\r\n")
+        print(req)
+        reqline = req[0].split(" ")
+        method = reqline[0]
+        path = reqline[1]
         print(f"Method: {method}, Path: {path}")
 
-        # Determine the response based on the URL path
-        if path.startswith('/files/'):
-            filename = path[len('/files/'):]
-            file_path = os.path.join(files_directory, filename)
-
-            if os.path.exists(file_path):
-                with open(file_path, 'rb') as file:
-                    file_contents = file.read()
-                content_length = len(file_contents)
-                http_response = (
+        if path == "/":
+            response = "HTTP/1.1 200 OK\r\n\r\n".encode()
+        elif path.startswith("/echo"):
+            message = path[6:]
+            response = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {len(message)}\r\n\r\n{message}".encode()
+        elif path.startswith("/user-agent"):
+            for line in req:
+                if line.startswith("User-Agent:"):
+                    user_agent = line.split(": ")[1]
+                    response = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {len(user_agent)}\r\n\r\n{user_agent}".encode()
+                    break
+        elif path.startswith("/files"):
+            directory = sys.argv[2]
+            filename = path[len("/files/"):]
+            print(directory, filename)
+            file_path = os.path.join(directory, filename)
+            try:
+                with open(file_path, "rb") as f:
+                    body = f.read()
+                response = (
                     f"HTTP/1.1 200 OK\r\n"
                     f"Content-Type: application/octet-stream\r\n"
-                    f"Content-Length: {content_length}\r\n\r\n"
-                ).encode() + file_contents
-            else:
-                http_response = "HTTP/1.1 404 Not Found\r\n\r\n".encode()
+                    f"Content-Length: {len(body)}\r\n\r\n"
+                ).encode() + body
+            except FileNotFoundError:
+                response = "HTTP/1.1 404 Not Found\r\n\r\n".encode()
         else:
-            http_response = "HTTP/1.1 404 Not Found\r\n\r\n".encode()
+            response = "HTTP/1.1 404 Not Found\r\n\r\n".encode()
 
-        client_socket.sendall(http_response)
+        client.send(response)
     except Exception as e:
-        print(f"Error handling client: {e}")
+        print(f"Error: {e}")
     finally:
-        client_socket.close()
+        client.close()
 
 def main():
-    global files_directory
-    print("Logs from your program will appear here!")
-
-    # Check if the correct number of arguments are provided
     if len(sys.argv) != 3 or sys.argv[1] != '--directory':
         print("Usage: ./your_server.sh --directory /path/to/files")
         return
-    
-    # Set the files directory
-    files_directory = sys.argv[2]
 
-    # Create a TCP/IP socket
+    directory = sys.argv[2]
+    if not os.path.isdir(directory):
+        print(f"Directory {directory} does not exist.")
+        return
+
     server_socket = socket.create_server(("localhost", 4221), reuse_port=True)
-    server_socket.listen()
     print("Server is listening on port 4221")
-
+    
     while True:
-        client_socket, client_address = server_socket.accept()
-        print(f"Accepted connection from {client_address}")
-
-        client_thread = threading.Thread(target=handle_client, args=(client_socket,))
-        client_thread.start()
+        client, addr = server_socket.accept()
+        print(f"Accepted connection from {addr}")
+        threading.Thread(target=handle_req, args=(client, addr)).start()
 
 if __name__ == "__main__":
     main()
