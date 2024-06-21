@@ -1,7 +1,15 @@
 import socket
+import os
+import sys
 
 def main():
     print("Logs from your program will appear here!")
+
+    # Parse the --directory flag to get the directory path
+    if len(sys.argv) != 3 or sys.argv[1] != '--directory':
+        print("Usage: ./your_server.sh --directory /path/to/files")
+        return
+    files_directory = sys.argv[2]
 
     # Create and bind the server socket
     server_socket = socket.create_server(("localhost", 4221), reuse_port=True)
@@ -25,43 +33,30 @@ def main():
         method, path, _ = request_line.split(' ')
         print(f"Method: {method}, Path: {path}")
 
-        # Initialize the user_agent variable
-        user_agent = ""
-
-        # Parse headers
-        headers = request.split('\r\n\r\n')[0].split('\r\n')[1:]
-        for header in headers:
-            header_name, header_value = header.split(': ', 1)
-            if header_name.lower() == 'user-agent':
-                user_agent = header_value
-                break
-
         # Determine the response based on the URL path
-        if path == '/':
-            http_response = "HTTP/1.1 200 OK\r\n\r\n"
-        elif path.startswith('/echo/'):
-            # Extract the string after /echo/
-            echo_string = path[len('/echo/'):]
-            content_length = len(echo_string)
-            http_response = (
-                f"HTTP/1.1 200 OK\r\n"
-                f"Content-Type: text/plain\r\n"
-                f"Content-Length: {content_length}\r\n\r\n"
-                f"{echo_string}"
-            )
-        elif path == '/user-agent':
-            content_length = len(user_agent)
-            http_response = (
-                f"HTTP/1.1 200 OK\r\n"
-                f"Content-Type: text/plain\r\n"
-                f"Content-Length: {content_length}\r\n\r\n"
-                f"{user_agent}"
-            )
+        if path.startswith('/files/'):
+            # Extract the filename from the path
+            filename = path[len('/files/'):]
+            file_path = os.path.join(files_directory, filename)
+
+            if os.path.exists(file_path):
+                # File exists, read its contents
+                with open(file_path, 'rb') as file:
+                    file_contents = file.read()
+                content_length = len(file_contents)
+                http_response = (
+                    f"HTTP/1.1 200 OK\r\n"
+                    f"Content-Type: application/octet-stream\r\n"
+                    f"Content-Length: {content_length}\r\n\r\n"
+                ).encode() + file_contents
+            else:
+                # File does not exist
+                http_response = "HTTP/1.1 404 Not Found\r\n\r\n".encode()
         else:
-            http_response = "HTTP/1.1 404 Not Found\r\n\r\n"
+            http_response = "HTTP/1.1 404 Not Found\r\n\r\n".encode()
 
         # Send the HTTP response
-        client_socket.sendall(http_response.encode())
+        client_socket.sendall(http_response)
 
         # Close the client connection
         client_socket.close()
