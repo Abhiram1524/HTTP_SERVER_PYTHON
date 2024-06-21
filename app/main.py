@@ -1,35 +1,72 @@
 import socket
 import threading
 import sys
-def main():
-    def handle_req(client, addr):
+import os
+
+def handle_req(client, addr, directory):
+    try:
         data = client.recv(1024).decode()
         req = data.split("\r\n")
-        path = req[0].split(" ")[1]
-        if path == "/":
-            response = "HTTP/1.1 200 OK\r\n\r\n".encode()
-        elif path.startswith("/echo"):
-            response = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {len(path[6:])}\r\n\r\n{path[6:]}".encode()
-        elif path.startswith("/user-agent"):
-            user_agent = req[2].split(": ")[1]
-            response = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {len(user_agent)}\r\n\r\n{user_agent}".encode()
-        elif path.startswith("/files"):
-            directory = sys.argv[2]
-            filename = path[7:]
-            print(directory, filename)
-            try:
-                with open(f"/{directory}/{filename}", "r") as f:
-                    body = f.read()
-                response = f"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {len(body)}\r\n\r\n{body}".encode()
-            except Exception as e:
-                response = f"HTTP/1.1 404 Not Found\r\n\r\n".encode()
+        request_line = req[0].split(" ")
+        method = request_line[0]
+        path = request_line[1]
+
+        if method == "POST" and path.startswith("/files"):
+            filename = path[len("/files/"):]
+            content_length = 0
+
+            # Parse headers to find Content-Length
+            for header in req:
+                if header.lower().startswith("content-length:"):
+                    content_length = int(header.split(": ")[1])
+                    break
+
+            # Read the request body
+            if content_length > 0:
+                # Locate the start of the request body
+                body_start = data.find("\r\n\r\n") + 4
+                body = data[body_start:body_start + content_length]
+
+                # Save the content to a file
+                file_path = os.path.join(directory, filename)
+                with open(file_path, "w") as f:
+                    f.write(body)
+
+                # Prepare the response
+                response = "HTTP/1.1 201 Created\r\n\r\n".encode()
+            else:
+                response = "HTTP/1.1 400 Bad Request\r\n\r\n".encode()
         else:
             response = "HTTP/1.1 404 Not Found\r\n\r\n".encode()
+
         client.send(response)
-    server_socket = socket.create_server(("localhost", 4221), reuse_port=True)
-    while True:
-        client, addr = server_socket.accept()
-        threading.Thread(target=handle_req, args=(client, addr)).start()
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        client.close()
+
+def main():
+    if len(sys.argv) != 3 or sys.argv[1] != '--directory':
+        print("Usage: ./your_server.sh --directory /path/to/files")
+        return
+
+    directory = sys.argv[2]
+    if not os.path.isdir(directory):
+        print(f"Directory {directory} does not exist.")
+        return
+
+    try:
+        server_socket = socket.create_server(("localhost", 4221), reuse_port=True)
+        print("Server is listening on port 4221")
+
+        while True:
+            client, addr = server_socket.accept()
+            print(f"Accepted connection from {addr}")
+            threading.Thread(target=handle_req, args=(client, addr, directory)).start()
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        server_socket.close()
+
 if __name__ == "__main__":
     main()
-
