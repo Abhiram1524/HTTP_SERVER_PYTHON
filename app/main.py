@@ -3,6 +3,9 @@ import os
 import sys
 import threading
 
+# Define a global variable for the files directory
+files_directory = None
+
 def handle_client(client_socket):
     try:
         request = client_socket.recv(1024).decode()
@@ -42,14 +45,18 @@ def handle_client(client_socket):
         client_socket.close()
 
 def main():
+    global files_directory
     print("Logs from your program will appear here!")
 
+    # Check if the correct number of arguments are provided
     if len(sys.argv) != 3 or sys.argv[1] != '--directory':
         print("Usage: ./your_server.sh --directory /path/to/files")
         return
-    global files_directory
+    
+    # Set the files directory
     files_directory = sys.argv[2]
 
+    # Create a TCP/IP socket
     server_socket = socket.create_server(("localhost", 4221), reuse_port=True)
     server_socket.listen()
     print("Server is listening on port 4221")
