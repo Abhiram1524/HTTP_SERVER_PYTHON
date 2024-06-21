@@ -25,6 +25,17 @@ def main():
         method, path, _ = request_line.split(' ')
         print(f"Method: {method}, Path: {path}")
 
+        # Initialize the user_agent variable
+        user_agent = ""
+
+        # Parse headers
+        headers = request.split('\r\n\r\n')[0].split('\r\n')[1:]
+        for header in headers:
+            header_name, header_value = header.split(': ', 1)
+            if header_name.lower() == 'user-agent':
+                user_agent = header_value
+                break
+
         # Determine the response based on the URL path
         if path == '/':
             http_response = "HTTP/1.1 200 OK\r\n\r\n"
@@ -37,6 +48,14 @@ def main():
                 f"Content-Type: text/plain\r\n"
                 f"Content-Length: {content_length}\r\n\r\n"
                 f"{echo_string}"
+            )
+        elif path == '/user-agent':
+            content_length = len(user_agent)
+            http_response = (
+                f"HTTP/1.1 200 OK\r\n"
+                f"Content-Type: text/plain\r\n"
+                f"Content-Length: {content_length}\r\n\r\n"
+                f"{user_agent}"
             )
         else:
             http_response = "HTTP/1.1 404 Not Found\r\n\r\n"
