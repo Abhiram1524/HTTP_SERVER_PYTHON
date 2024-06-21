@@ -1,127 +1,53 @@
+import gzip
+import pathlib
 import socket
-from threading import Thread
-import argparse
-from pathlib import Path
-RN = b"\r\n"
-def parse_request(conn):
-    d = {}
-    headers = {}
-    body = []
-    target = 0  # request
-    rest = b""
-    ind = 0
-    body_len = 0
-    body_count = 0
-    while data := conn.recv(1024):
-        if rest:
-            data = rest + data
-            rest = b""
-        if target == 0:
-            ind = data.find(RN)
-            if ind == -1:
-                rest = data
-                continue
-            # GET URL HTTP
-            line = data[:ind].decode()
-            data = data[ind + 2 :]
-            d["request"] = line
-            l = line.split()
-            d["method"] = l[0]  # GET, POST
-            d["url"] = l[1]
-            target = 1  # headers
-        if target == 1:
-            if not data:
-                continue
-            while True:
-                ind = data.find(RN)
-                if ind == -1:
-                    rest = data
-                    break
-                if ind == 0:  # \r\n\r\n
-                    data = data[ind + 2 :]
-                    target = 2
-                    break
-                line = data[:ind].decode()
-                data = data[ind + 2 :]
-                l = line.split(":", maxsplit=1)
-                field = l[0]
-                value = l[1].strip()
-                headers[field.lower()] = value
-            if target == 1:
-                continue
-        if target == 2:
-            if "content-length" not in headers:
-                break
-            body_len = int(headers["content-length"])
-            if not body_len:
-                break
-            target = 3
-        if target == 3:
-            body.append(data)
-            body_count += len(data)
-            if body_count >= body_len:
-                break
-    d["headers"] = headers
-    d["body"] = b"".join(body)
-    return d
-def req_handler(conn, dir_):
-    with conn:
-        d = parse_request(conn)
-        url = d["url"]
-        method = d["method"]
-        headers = d["headers"]
-        if url == "/":
-            conn.sendall(b"HTTP/1.1 200 OK\r\n\r\n")
-        elif url.startswith("/echo/"):
-            body = url[6:].encode()
-            conn.send(b"HTTP/1.1 200 OK\r\n")
-            conn.send(b"Content-Type: text/plain\r\n")
-            if encoding := headers.get("accept-encoding", None):
-                l = encoding.split(", ")
-                if "gzip" in l:
-                    conn.send(b"Content-Encoding: gzip\r\n")
-            conn.send(f"Content-Length: {len(body)}\r\n".encode())
-            conn.send(RN)
-            conn.send(body)
-        elif url == "/user-agent":
-            
-            body = headers["user-agent"].encode()
-            conn.send(b"HTTP/1.1 200 OK\r\n")
-            conn.send(b"Content-Type: text/plain\r\n")
-            conn.send(f"Content-Length: {len(body)}\r\n".encode())
-            conn.send(RN)
-            conn.send(body)
-        elif url.startswith("/files/"):
-            file = Path(dir_) / url[7:]
-            if method == "GET":
-                if file.exists():
-                    conn.send(b"HTTP/1.1 200 OK\r\n")
-                    conn.send(b"Content-Type: application/octet-stream\r\n")
-                    with open(file, "rb") as fp:
-                        body = fp.read()
-                    conn.send(f"Content-Length: {len(body)}\r\n".encode())
-                    conn.send(RN)
-                    conn.send(body)
-                else:
-                    conn.sendall(b"HTTP/1.1 404 Not Found\r\n\r\n")
-            elif method == "POST":
-                with open(file, "wb") as fp:
-                    fp.write(d["body"])
-                conn.send(b"HTTP/1.1 201 Created\r\n\r\n")
-            else:
-                conn.sendall(b"HTTP/1.1 404 Not Found\r\n\r\n")
-        else:
-            conn.sendall(b"HTTP/1.1 404 Not Found\r\n\r\n")
+import sys
+import threading
+import types
+from collections.abc import Generator
+from app.entities import Request, Response, ResponseGenerator
+from app.utils import read_request
+def process(sock: socket.socket) -> None:
+    request = read_request(sock)
+    if request.target == "/":
+        response = Response()  # HTTP/1.1 200 OK\r\n\r\n
+    elif request.target.startswith("/echo/"):
+        body = request.target[6:].encode()
+        response = Response(body=body)
+        accept_encodings = (
+            request.headers["Accept-Encoding"].split(", ")
+            if request.headers.get("Accept-Encoding")
+            else []
+        )
+        if accept_encodings and "gzip" in accept_encodings:
+            response.headers["Content-Encoding"] = "gzip"
+            response.body = gzip.compress(body)
+    elif request.target.startswith("/user-agent"):
+        body = (request.headers.get("User-Agent") or "").encode()
+        headers = {"Content-Type": "text/plain", "Content-Length": len(body)}
+        response = Response(headers=headers, body=body)
+    elif request.target.startswith("/files/") and request.method.lower() == "get":
+        filepath = pathlib.Path(sys.argv[2]) / request.target[7:]
+        response = Response.from_file(filepath)
+    elif request.target.startswith("/files/") and request.method.lower() == "post":
+        filepath = pathlib.Path(sys.argv[2]) / request.target[7:]
+        with open(filepath, "wb") as file:
+            file.write(request.body)
+        response = Response(status_code=201, status_text="Created")
+    else:
+        response = Response(
+            status_code=404, status_text="Not Found"
+        )  #  HTTP/1.1 404 Not Found\r\n\r\n
+    if isinstance(response, Response):
+        sock.send(response.to_raw())
+    elif isinstance(response, types.GeneratorType):
+        for data in response:
+            sock.send(data)
+    sock.close()
 def main():
-    parser = argparse.ArgumentParser(description="socket server")
-    parser.add_argument(
-        "--directory", default=".", help="directory from which to get files"
-    )
-    args = parser.parse_args()  # args.directory
     server_socket = socket.create_server(("localhost", 4221), reuse_port=True)
     while True:
-        conn, _ = server_socket.accept()  # wait for client
-        # req_handler(conn)
-        Thread(target=req_handler, args=(conn, args.directory)).start()
+        sock, addr_info = server_socket.accept()
+        threading.Thread(target=process, args=(sock,)).start()
 if __name__ == "__main__":
     main()
