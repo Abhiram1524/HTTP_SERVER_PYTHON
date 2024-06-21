@@ -1,27 +1,10 @@
 import socket
 import os
 import sys
+import threading
 
-def main():
-    print("Logs from your program will appear here!")
-
-    # Parse the --directory flag to get the directory path
-    if len(sys.argv) != 3 or sys.argv[1] != '--directory':
-        print("Usage: ./your_server.sh --directory /path/to/files")
-        return
-    files_directory = sys.argv[2]
-
-    # Create and bind the server socket
-    server_socket = socket.create_server(("localhost", 4221), reuse_port=True)
-    server_socket.listen()
-    print("Server is listening on port 4221")
-
-    while True:
-        # Accept a connection from a client
-        client_socket, client_address = server_socket.accept()
-        print(f"Accepted connection from {client_address}")
-
-        # Receive the request
+def handle_client(client_socket):
+    try:
         request = client_socket.recv(1024).decode()
         print(f"Received request: {request}")
 
@@ -35,12 +18,10 @@ def main():
 
         # Determine the response based on the URL path
         if path.startswith('/files/'):
-            # Extract the filename from the path
             filename = path[len('/files/'):]
             file_path = os.path.join(files_directory, filename)
 
             if os.path.exists(file_path):
-                # File exists, read its contents
                 with open(file_path, 'rb') as file:
                     file_contents = file.read()
                 content_length = len(file_contents)
@@ -50,16 +31,35 @@ def main():
                     f"Content-Length: {content_length}\r\n\r\n"
                 ).encode() + file_contents
             else:
-                # File does not exist
                 http_response = "HTTP/1.1 404 Not Found\r\n\r\n".encode()
         else:
             http_response = "HTTP/1.1 404 Not Found\r\n\r\n".encode()
 
-        # Send the HTTP response
         client_socket.sendall(http_response)
-
-        # Close the client connection
+    except Exception as e:
+        print(f"Error handling client: {e}")
+    finally:
         client_socket.close()
+
+def main():
+    print("Logs from your program will appear here!")
+
+    if len(sys.argv) != 3 or sys.argv[1] != '--directory':
+        print("Usage: ./your_server.sh --directory /path/to/files")
+        return
+    global files_directory
+    files_directory = sys.argv[2]
+
+    server_socket = socket.create_server(("localhost", 4221), reuse_port=True)
+    server_socket.listen()
+    print("Server is listening on port 4221")
+
+    while True:
+        client_socket, client_address = server_socket.accept()
+        print(f"Accepted connection from {client_address}")
+
+        client_thread = threading.Thread(target=handle_client, args=(client_socket,))
+        client_thread.start()
 
 if __name__ == "__main__":
     main()
