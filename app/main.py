@@ -26,13 +26,31 @@ def make_response(
         201: "CREATED",
         404: "NOT FOUND",
     }
-Expand 12 lines
+    return b"\r\n".join(
+        map(
+            lambda i: i.encode(),
+            [
+                f"HTTP/1.1 {status} {msg[status]}",
+                *[f"{k}: {v}" for k, v in headers.items()],
+                f"Content-Length: {len(body)}",
+                "",
+                body,
+            ],
+        ),
+    )
 async def handle_connection(reader: StreamReader, writer: StreamWriter) -> None:
     _, path, headers, _ = parse_request(await reader.read(2**16))
     method, path, headers, body = parse_request(await reader.read(2**16))
     if re.fullmatch(r"/", path):
         writer.write(b"HTTP/1.1 200 OK\r\n\r\n")
-Expand 8 lines
+        stderr(f"[OUT] /")
+    elif re.fullmatch(r"/user-agent", path):
+        ua = headers["User-Agent"]
+        writer.write(make_response(200, {"Content-Type": "text/plain"}, ua))
+        stderr(f"[OUT] user-agent {ua}")
+    elif match := re.fullmatch(r"/echo/(.+)", path):
+        msg = match.group(1)
+        writer.write(make_response(200, {"Content-Type": "text/plain"}, msg))
         stderr(f"[OUT] echo {msg}")
     elif match := re.fullmatch(r"/files/(.+)", path):
         p = Path(GLOBALS["DIR"]) / match.group(1)
