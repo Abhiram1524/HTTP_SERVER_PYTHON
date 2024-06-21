@@ -11,31 +11,17 @@ def handle_req(client, addr, directory):
         method = request_line[0]
         path = request_line[1]
 
-        if method == "POST" and path.startswith("/files"):
+        if method == "GET" and path.startswith("/files/"):
             filename = path[len("/files/"):]
-            content_length = 0
+            file_path = os.path.join(directory, filename)
 
-            # Parse headers to find Content-Length
-            for header in req:
-                if header.lower().startswith("content-length:"):
-                    content_length = int(header.split(": ")[1])
-                    break
+            if os.path.isfile(file_path):
+                with open(file_path, "r") as f:
+                    body = f.read()
 
-            # Read the request body
-            if content_length > 0:
-                # Locate the start of the request body
-                body_start = data.find("\r\n\r\n") + 4
-                body = data[body_start:body_start + content_length]
-
-                # Save the content to a file
-                file_path = os.path.join(directory, filename)
-                with open(file_path, "w") as f:
-                    f.write(body)
-
-                # Prepare the response
-                response = "HTTP/1.1 201 Created\r\n\r\n".encode()
+                response = f"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {len(body)}\r\n\r\n{body}".encode()
             else:
-                response = "HTTP/1.1 400 Bad Request\r\n\r\n".encode()
+                response = "HTTP/1.1 404 Not Found\r\n\r\n".encode()
         else:
             response = "HTTP/1.1 404 Not Found\r\n\r\n".encode()
 
